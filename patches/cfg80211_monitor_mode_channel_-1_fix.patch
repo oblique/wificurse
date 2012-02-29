@@ -1,0 +1,14 @@
+diff --git a/net/wireless/chan.c b/net/wireless/chan.c
+index 2fcfe09..3f63fae 100644
+--- a/net/wireless/chan.c
++++ b/net/wireless/chan.c
+@@ -85,9 +85,6 @@ int cfg80211_set_freq(struct cfg80211_registered_device *rdev,
+ 	struct ieee80211_channel *chan;
+ 	int result;
+ 
+-	if (wdev && wdev->iftype == NL80211_IFTYPE_MONITOR)
+-		wdev = NULL;
+-
+ 	if (wdev) {
+ 		ASSERT_WDEV_LOCK(wdev);
+ 

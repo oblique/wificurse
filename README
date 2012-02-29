@@ -1,0 +1,17 @@
+This program listens for beacons send from wireless access points
+in the range of your wireless station. Once received the program
+extracts the BSSID of the AP and transmits deauthentication packages
+using the broadcast MAC address. This results to the disconnection
+of all clients connected at the AP at the time of the attack. This
+is essencially a WiFi DoS attack tool created for educational
+purposes only. It works only in Linux and requires wireless card
+drivers capable of injecting packets in wireless networks.
+
+If your Linux kernel is version 2.6.35 or above, you have to
+apply the patch patches/cfg80211_monitor_mode_channel_-1_fix.patch
+to the kernel.
+
+How to use it: Just run it as root and put as first argument the
+card interface. It will put your interface in monitor mode automatically,
+it will start DoSing and change channel every 3 seconds. The channel
+range is 1 - 13.
