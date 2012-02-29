@@ -4,10 +4,10 @@ OBJS = wificurse.o error.o
 all: wificurse
 
 wificurse: $(OBJS)
-	$(CC) -o $@ $^
+	$(CC) $(LDFLAGS) -o $@ $(OBJS)
 
 %.o: %.c %.h
-	$(CC) -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
 	@rm -f *~ *.o wificurse
