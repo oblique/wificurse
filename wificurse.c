@@ -346,12 +346,10 @@ int main(int argc, char *argv[]) {
 
 		if (pfd[1].revents & POLLIN) {
 			ret = read_bssid(dev.fd, bssid);
-			if (ret == -EAGAIN) /* no bssid */
-				continue;
-			else if (ret < 0) { /* error */
+			if (ret < 0 && ret != -EAGAIN) { /* error */
 				print_error();
 				goto _errout;
-			} else { /* got BSSID */
+			} else if (ret == 0) { /* got BSSID */
 				printf("DoS BSSID ");
 				print_mac(bssid);
 				printf("\n");
