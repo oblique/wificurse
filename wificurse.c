@@ -181,7 +181,7 @@ int iw_set_channel(struct dev *dev, int chan) {
 	int rcvbuflen, old_rcvbuflen;
 	socklen_t optlen;
 
-	/* get receive buffer size */
+	/* save current receive buffer size */
 	optlen = sizeof(old_rcvbuflen);
 	if (getsockopt(dev->fd, SOL_SOCKET, SO_RCVBUF, &old_rcvbuflen, &optlen) < 0)
 		return_error("getsockopt(SO_RCVBUF)");
@@ -201,7 +201,7 @@ int iw_set_channel(struct dev *dev, int chan) {
 		return_error("ioctl(SIOCSIWFREQ)");
 	dev->chan = chan;
 
-	/* restore the default buffer size */
+	/* restore receive buffer size */
 	if (setsockopt(dev->fd, SOL_SOCKET, SO_RCVBUF, &old_rcvbuflen, optlen) < 0)
 		return_error("setsockopt(SO_RCVBUF)");
 
