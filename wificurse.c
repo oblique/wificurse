@@ -233,7 +233,9 @@ int read_bssid(int fd, uint8_t *bssid) {
 	struct mgmt_frame *beacon;
 
 	r = iw_read(fd, buf, sizeof(buf), &pkt, &pkt_sz);
-	if (r < 0)
+	if (r == -EAGAIN)
+		return -EAGAIN;
+	else if (r < 0)
 		return GOTERR;
 
 	beacon = (struct mgmt_frame*)pkt;
@@ -330,7 +332,7 @@ int main(int argc, char *argv[]) {
 			ret = read_bssid(dev.fd, bssid);
 			if (ret == -EAGAIN)
 				continue;
-			if (ret < 0) { // error
+			else if (ret < 0) { // error
 				print_error();
 				goto _errout;
 			} else { // got BSSID
