@@ -178,19 +178,12 @@ ssize_t iw_read(int fd, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz) 
 
 int iw_set_channel(struct dev *dev, int chan) {
 	struct iwreq iwr;
-	int rcvbuflen, old_rcvbuflen;
-	socklen_t optlen;
+	ssize_t ret;
 
-	/* save current receive buffer size */
-	optlen = sizeof(old_rcvbuflen);
-	if (getsockopt(dev->fd, SOL_SOCKET, SO_RCVBUF, &old_rcvbuflen, &optlen) < 0)
-		return_error("getsockopt(SO_RCVBUF)");
-
-	/* set receive buffer size to 0 */
-	/* this will discard packets that are in kernel packet queue */
-	rcvbuflen = 0;
-	if (setsockopt(dev->fd, SOL_SOCKET, SO_RCVBUF, &rcvbuflen, optlen) < 0)
-		return_error("setsockopt(SO_RCVBUF)");
+	/* discard packets that are in kernel packet queue */
+	ret = 0;
+	while (ret != -1)
+		ret = recv(dev->fd, NULL, 0, MSG_DONTWAIT);
 
 	/* set channel */
 	memset(&iwr, 0, sizeof(iwr));
@@ -200,10 +193,6 @@ int iw_set_channel(struct dev *dev, int chan) {
 	if (ioctl(dev->fd, SIOCSIWFREQ, &iwr) < 0)
 		return_error("ioctl(SIOCSIWFREQ)");
 	dev->chan = chan;
-
-	/* restore receive buffer size */
-	if (setsockopt(dev->fd, SOL_SOCKET, SO_RCVBUF, &old_rcvbuflen, optlen) < 0)
-		return_error("setsockopt(SO_RCVBUF)");
 
 	return 0;
 }
