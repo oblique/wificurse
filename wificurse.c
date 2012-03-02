@@ -176,6 +176,25 @@ ssize_t iw_read(int fd, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz) 
 	return r;
 }
 
+int iw_can_change_channel(struct dev *dev) {
+	struct iwreq iwr;
+	ssize_t ret;
+
+	/* set channel */
+	memset(&iwr, 0, sizeof(iwr));
+	strncpy(iwr.ifr_name, dev->ifname, sizeof(iwr.ifr_name)-1);
+	iwr.u.freq.flags = IW_FREQ_FIXED;
+	iwr.u.freq.m = 1;
+
+	if (ioctl(dev->fd, SIOCSIWFREQ, &iwr) < 0)
+		return 0;
+	if (ioctl(dev->fd, SIOCGIWFREQ, &iwr) < 0)
+		return 0;
+
+	/* channel 1 frequency is 2412 */
+	return iwr.u.freq.m == 2412;
+}
+
 int iw_set_channel(struct dev *dev, int chan) {
 	struct iwreq iwr;
 	ssize_t ret;
@@ -311,6 +330,13 @@ int main(int argc, char *argv[]) {
 		goto _errout;
 	}
 
+	if (!iw_can_change_channel(&dev)) {
+		fprintf(stderr, "%s cannot change channels in monitor mode.\n"
+			"Maybe you will need to patch your kernel with:\n"
+			"  patches/cfg80211_monitor_mode_channel_fix.patch\n", dev.ifname);
+		goto _errout;
+	}
+
 	pfd[1].fd = dev.fd;
 	pfd[1].revents = 0;
 	pfd[1].events = POLLIN;
@@ -351,15 +377,19 @@ int main(int argc, char *argv[]) {
 
 		/* change channel every 3 seconds */
 		if (time(NULL) - tm1 >= 3) {
-			chan = (chan % 13) + 1;
-			if (iw_set_channel(&dev, chan) < 0) {
+			int n = 0;
+			do {
+				chan = (chan % 13) + 1;
+				ret = iw_set_channel(&dev, chan);
+				/* if fails try next channel */
+			} while(++n < 13 && ret < 0);
+			if (ret < 0) {
 				print_error();
 				goto _errout;
 			}
 			printf("Channel: %d\n", dev.chan);
 			tm1 = time(NULL);
 		}
-
 	}
 
 	printf("\nExiting..\n");

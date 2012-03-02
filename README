@@ -8,7 +8,7 @@ purposes only. It works only in Linux and requires wireless card
 drivers capable of injecting packets in wireless networks.
 
 If your Linux kernel is version 2.6.35 or above, you have to
-apply the patch patches/cfg80211_monitor_mode_channel_-1_fix.patch
+apply the patch patches/cfg80211_monitor_mode_channel_fix.patch
 to the kernel.
 
 How to use it: Just run it as root and put as first argument the
