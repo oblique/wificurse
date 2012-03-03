@@ -16,50 +16,37 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef WIFICURSE_H
-#define WIFICURSE_H
+#ifndef IW_H
+#define IW_H
 
 #include <stdint.h>
-#include <linux/if.h>
 #include "dev.h"
 
 
-#define VERSION	"0.2"
-
-struct frame_control {
-	uint8_t protocol_version:2;
-	uint8_t type:2;
-	uint8_t subtype:4;
-	uint8_t to_ds:1;
-	uint8_t from_ds:1;
-	uint8_t more_frag:1;
-	uint8_t retry:1;
-	uint8_t pwr_mgt:1;
-	uint8_t more_data:1;
-	uint8_t protected_frame:1;
-	uint8_t order:1;
+struct radiotap_hdr {
+	uint8_t  version;
+	uint8_t  pad;
+	uint16_t len;
+	uint32_t present;
 } __attribute__((__packed__));
 
-#define FRAME_CONTROL_SUBTYPE_DEAUTH	12
-#define FRAME_CONTROL_SUBTYPE_BEACON	8
-
-struct sequence_control {
-	uint16_t fragment:4;
-	uint16_t sequence:12;
+struct write_radiotap_data {
+	uint8_t  rate;
+	uint8_t  pad;
+	uint16_t tx_flags;
 } __attribute__((__packed__));
 
-struct mgmt_frame {
-	struct frame_control fc;
-	uint16_t duration;
-	uint8_t  dest_mac[IFHWADDRLEN];
-	uint8_t  src_mac[IFHWADDRLEN];
-	uint8_t  bssid[IFHWADDRLEN];
-	struct sequence_control sc;
-	uint8_t  frame_body[];
-} __attribute__((__packed__));
+#define RADIOTAP_F_PRESENT_RATE	(1<<2)
+#define RADIOTAP_F_PRESENT_TX_FLAGS	(1<<15)
+#define RADIOTAP_F_TX_FLAGS_NOACK	0x0008
+#define RADIOTAP_F_TX_FLAGS_NOSEQ	0x0010
 
 
-int send_deauth(int fd, uint8_t *ap_mac);
-int read_bssid(int fd, uint8_t *bssid);
+int iw_open(struct dev *dev);
+void iw_close(struct dev *dev);
+ssize_t iw_write(int fd, void *buf, size_t count);
+ssize_t iw_read(int fd, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz);
+int iw_can_change_channel(struct dev *dev);
+int iw_set_channel(struct dev *dev, int chan);
 
 #endif

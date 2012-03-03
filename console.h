@@ -16,29 +16,37 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef ERROR_H
-#define ERROR_H
+#ifndef CONSOLE_H
+#define CONSOLE_H
 
-#include <errno.h>
-
-
-#define GOTERR		-1
-#define ERRNODATA	-2
-#define ERRAGAIN	-3
-
-void set_error(char *file, int line, int errnum, char *fmt, ...);
-void print_error();
-void _err_msg(char *file, int line, int errnum, char *fmt, ...);
+#include <stdint.h>
+#include <time.h>
+#include <sys/socket.h>
+#include <linux/wireless.h>
+#include "dev.h"
 
 
-#define return_error(fmt, ...)						\
-do {									\
-	set_error(__FILE__, __LINE__, errno, fmt, ##__VA_ARGS__);	\
-	return GOTERR;							\
-} while(0)
+struct access_point {
+	int dosing;
+	unsigned int num_of_deauth;
+	time_t last_beacon_tm;
+	uint8_t bssid[IFHWADDRLEN];
+	struct access_point *next;
+	struct access_point *prev;
+};
 
-#define err_msg(fmt, ...) \
-	_err_msg(__FILE__, __LINE__, errno, fmt, ##__VA_ARGS__);
+struct ap_list {
+	struct access_point *head;
+	struct access_point *tail;
+};
 
+
+void init_ap_list(struct ap_list *apl);
+int add_or_update_ap(struct ap_list *apl, uint8_t *bssid);
+void unlink_ap(struct ap_list *apl, struct access_point *ap);
+void clear_scr();
+void update_scr(struct ap_list *apl, struct dev *dev);
+
+#define RED_COLOR(str) "\033[1;31m" str "\033[0m"
 
 #endif

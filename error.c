@@ -1,6 +1,6 @@
 /*
     wificurse - WiFi DoS tool
-    Copyright (C) <2012>  <oblique>
+    Copyright (C) 2012  oblique
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -17,10 +17,10 @@
 */
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 #include "error.h"
+
 
 struct _error {
 	int errnum;

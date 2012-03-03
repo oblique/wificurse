@@ -1,5 +1,5 @@
 CC = $(CROSS_COMPILE)gcc
-OBJS = wificurse.o error.o
+OBJS = wificurse.o iw.o dev.o error.o console.o
 
 all: wificurse
 
