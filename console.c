@@ -70,10 +70,20 @@ int add_or_update_ap(struct ap_list *apl, uint8_t *bssid) {
 	}
 
 	ap->last_beacon_tm = time(NULL);
-	ap->dosing = 1;
+	ap->deauth = 1;
 	ap->num_of_deauth++;
 
 	return 0;
+}
+
+void clear_deauth(struct ap_list *apl) {
+	struct access_point *ap;
+
+	ap = apl->head;
+	while (ap != NULL) {
+		ap->deauth = 0;
+		ap = ap->next;
+	}
 }
 
 void unlink_ap(struct ap_list *apl, struct access_point *ap) {
@@ -97,8 +107,8 @@ void update_scr(struct ap_list *apl, struct dev *dev) {
 
 	/* move cursor at colum 1 row 1 */
 	printf("\033[1;1H");
-	printf("[ Channel: %3d ]\n\n", dev->chan);
 
+	printf("[ Channel: %3d ]\n\n", dev->chan);
 	printf("Deauth  BSSID              Number of Deauth\n\n");
 
 	ap = apl->head;
@@ -110,10 +120,9 @@ void update_scr(struct ap_list *apl, struct dev *dev) {
 			free(tmp);
 			continue;
 		}
-		if (ap->dosing) {
+		if (ap->deauth)
 			printf(RED_COLOR("*"));
-			ap->dosing = 0;
-		} else
+		else
 			printf(" ");
 		printf("       %02x:%02x:%02x:%02x:%02x:%02x", ap->bssid[0], ap->bssid[1],
 		       ap->bssid[2], ap->bssid[3], ap->bssid[4], ap->bssid[5]);

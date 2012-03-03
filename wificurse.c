@@ -202,6 +202,7 @@ int main(int argc, char *argv[]) {
 				print_error();
 				goto _errout;
 			}
+			clear_deauth(&apl);
 			update_scr(&apl, &dev);
 			tm1 = time(NULL);
 		}

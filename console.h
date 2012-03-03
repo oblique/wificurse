@@ -27,7 +27,7 @@
 
 
 struct access_point {
-	int dosing;
+	int deauth;
 	unsigned int num_of_deauth;
 	time_t last_beacon_tm;
 	uint8_t bssid[IFHWADDRLEN];
@@ -44,6 +44,7 @@ struct ap_list {
 void init_ap_list(struct ap_list *apl);
 int add_or_update_ap(struct ap_list *apl, uint8_t *bssid);
 void unlink_ap(struct ap_list *apl, struct access_point *ap);
+void clear_deauth(struct ap_list *apl);
 void clear_scr();
 void update_scr(struct ap_list *apl, struct dev *dev);
 
