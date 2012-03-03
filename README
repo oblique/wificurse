@@ -15,3 +15,10 @@ How to use it: Just run it as root and put as first argument the
 card interface. It will put your interface in monitor mode automatically,
 it will start DoSing and change channel every 3 seconds. The channel
 range is 1 - 13.
+
+
+compile:
+    make
+
+install:
+    make PREFIX=/usr install
