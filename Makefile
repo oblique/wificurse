@@ -1,6 +1,8 @@
 PREFIX ?= /usr/local
 CC = $(CROSS_COMPILE)gcc
-OBJS = src/wificurse.o src/iw.o src/dev.o src/error.o src/console.o
+
+SRCS = $(wildcard src/*.c)
+OBJS = $(SRCS:%.c=%.o)
 
 .PHONY: clean all install
 
