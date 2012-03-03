@@ -33,8 +33,8 @@ void init_ap_list(struct ap_list *apl) {
 void free_ap_list(struct ap_list *apl) {
 	struct access_point *tmp;
 
-	tmp = apl->head;
 	while (apl->head != NULL) {
+		tmp = apl->head;
 		apl->head = apl->head->next;
 		free(tmp);
 	}
