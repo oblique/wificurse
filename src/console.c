@@ -130,7 +130,7 @@ void update_scr(struct ap_list *apl, struct dev *dev) {
 		ap = ap->next;
 	}
 
-	/* from cursor to end of display */
+	/* clear screen from cursor to end of display */
 	printf("\033[J");
 	fflush(stdout);
 }
