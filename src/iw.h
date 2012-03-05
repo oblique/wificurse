@@ -20,7 +20,8 @@
 #define IW_H
 
 #include <stdint.h>
-#include "dev.h"
+#include <sys/socket.h>
+#include <linux/wireless.h>
 
 
 struct radiotap_hdr {
@@ -41,12 +42,23 @@ struct write_radiotap_data {
 #define RADIOTAP_F_TX_FLAGS_NOACK	0x0008
 #define RADIOTAP_F_TX_FLAGS_NOSEQ	0x0010
 
+struct iw_dev {
+	char ifname[IFNAMSIZ+1];
+	int ifindex;
+	int fd_in;
+	int fd_out;
+	volatile int chan;
+	struct ifreq old_flags;
+	struct iwreq old_mode;
+};
 
-int iw_open(struct dev *dev);
-void iw_close(struct dev *dev);
-ssize_t iw_write(int fd, void *buf, size_t count);
-ssize_t iw_read(int fd, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz);
-int iw_can_change_channel(struct dev *dev);
-int iw_set_channel(struct dev *dev, int chan);
+
+void iw_init_dev(struct iw_dev *dev);
+int iw_open(struct iw_dev *dev);
+void iw_close(struct iw_dev *dev);
+ssize_t iw_write(struct iw_dev *dev, void *buf, size_t count);
+ssize_t iw_read(struct iw_dev *dev, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz);
+int iw_can_change_channel(struct iw_dev *dev);
+int iw_set_channel(struct iw_dev *dev, int chan);
 
 #endif

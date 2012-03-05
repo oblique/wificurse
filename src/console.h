@@ -19,35 +19,14 @@
 #ifndef CONSOLE_H
 #define CONSOLE_H
 
-#include <stdint.h>
-#include <time.h>
-#include <sys/socket.h>
-#include <linux/wireless.h>
-#include "dev.h"
+#include "iw.h"
+#include "ap_list.h"
 
 
-struct access_point {
-	int deauth;
-	unsigned int num_of_deauth;
-	time_t last_beacon_tm;
-	uint8_t bssid[IFHWADDRLEN];
-	struct access_point *next;
-	struct access_point *prev;
-};
-
-struct ap_list {
-	struct access_point *head;
-	struct access_point *tail;
-};
-
-
-void init_ap_list(struct ap_list *apl);
-int add_or_update_ap(struct ap_list *apl, uint8_t *bssid);
-void unlink_ap(struct ap_list *apl, struct access_point *ap);
-void clear_deauth(struct ap_list *apl);
 void clear_scr();
-void update_scr(struct ap_list *apl, struct dev *dev);
+void update_scr(struct ap_list *apl, struct iw_dev *dev);
 
-#define RED_COLOR(str) "\033[1;31m" str "\033[0m"
+#define RED_COLOR	"\033[1;31m"
+#define RESET_COLOR	"\033[0m"
 
 #endif

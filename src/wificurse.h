@@ -21,10 +21,11 @@
 
 #include <stdint.h>
 #include <linux/if.h>
-#include "dev.h"
+#include "iw.h"
+#include "ap_list.h"
 
 
-#define VERSION	"0.2"
+#define VERSION	"0.3"
 
 struct frame_control {
 	uint8_t protocol_version:2;
@@ -58,8 +59,24 @@ struct mgmt_frame {
 	uint8_t  frame_body[];
 } __attribute__((__packed__));
 
+struct info_element {
+	uint8_t id;
+	uint8_t len;
+	uint8_t info[];
+} __attribute__((__packed__));
 
-int send_deauth(int fd, uint8_t *ap_mac);
-int read_bssid(int fd, uint8_t *bssid);
+#define INFO_ELEMENT_ID_SSID	0
+#define INFO_ELEMENT_ID_DS	3
+
+struct beacon_frame_body {
+	uint64_t timestamp;
+	uint16_t interval;
+	uint16_t capabilities;
+	struct info_element infos[];
+} __attribute__((__packed__));
+
+
+int send_deauth(struct iw_dev *dev, struct access_point *ap);
+int read_ap_info(struct iw_dev *dev, struct ap_info *api);
 
 #endif

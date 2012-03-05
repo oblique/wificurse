@@ -12,9 +12,11 @@ apply the patch patches/cfg80211_monitor_mode_channel_fix.patch
 to the kernel.
 
 How to use it: Just run it as root and put as first argument the
-card interface. It will put your interface in monitor mode automatically,
-it will start DoSing and change channel every 3 seconds. The channel
-range is 1 - 13.
+card interface. It will automatically put your interface in monitor
+mode and it will listen at channel range 1-14. If there is no AP in the
+channel, it will change channel every 1 second, or else it will start
+the attack which it takes approximately 30 seconds. After that it will
+change channel.
 
 
 compile:
@@ -22,3 +24,6 @@ compile:
 
 install:
     make PREFIX=/usr install
+
+ARM cross-compile:
+    make CROSS_COMPILE=arm-none-linux-gnueabi-

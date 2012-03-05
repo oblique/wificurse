@@ -27,10 +27,16 @@
 #include "iw.h"
 
 
+void iw_init_dev(struct iw_dev *dev) {
+	memset(dev, 0, sizeof(*dev));
+	dev->fd_in = -1;
+	dev->fd_out = -1;
+}
+
 /* man 7 netdevice
  * man 7 packet
  */
-int iw_open(struct dev *dev) {
+int iw_open(struct iw_dev *dev) {
 	struct ifreq ifr;
 	struct iwreq iwr;
 	struct sockaddr_ll sll;
@@ -40,19 +46,27 @@ int iw_open(struct dev *dev) {
 	fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 	if (fd < 0)
 		return_error("socket");
-	dev->fd = fd;
+	dev->fd_in = fd;
+
+	dev->fd_out = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+	if (dev->fd_out < 0)
+		return_error("socket");
 
 	/* save current interface flags */
 	memset(&dev->old_flags, 0, sizeof(dev->old_flags));
 	strncpy(dev->old_flags.ifr_name, dev->ifname, sizeof(dev->old_flags.ifr_name)-1);
-	if (ioctl(fd, SIOCGIFFLAGS, &dev->old_flags) < 0)
+	if (ioctl(fd, SIOCGIFFLAGS, &dev->old_flags) < 0) {
+		dev->old_flags.ifr_name[0] = '\0';
 		return_error("ioctl(SIOCGIFFLAGS)");
+	}
 
 	/* save current interface mode */
 	memset(&dev->old_mode, 0, sizeof(dev->old_mode));
 	strncpy(dev->old_mode.ifr_name, dev->ifname, sizeof(dev->old_mode.ifr_name)-1);
-	if (ioctl(fd, SIOCGIWMODE, &dev->old_mode) < 0)
+	if (ioctl(fd, SIOCGIWMODE, &dev->old_mode) < 0) {
+		dev->old_mode.ifr_name[0] = '\0';
 		return_error("ioctl(SIOCGIWMODE)");
+	}
 
 	/* set interface down (ifr_flags = 0) */
 	memset(&ifr, 0, sizeof(ifr));
@@ -77,42 +91,59 @@ int iw_open(struct dev *dev) {
 		return_error("ioctl(SIOCGIFINDEX)");
 	dev->ifindex = ifr.ifr_ifindex;
 
-	/* bind interface to socket */
+	/* bind interface to fd_in socket */
 	memset(&sll, 0, sizeof(sll));
 	sll.sll_family = AF_PACKET;
 	sll.sll_ifindex = dev->ifindex;
 	sll.sll_protocol = htons(ETH_P_ALL);
-	if (bind(fd, (struct sockaddr*)&sll, sizeof(sll)) < 0)
+	if (bind(dev->fd_in, (struct sockaddr*)&sll, sizeof(sll)) < 0)
 		return_error("bind(%s)", dev->ifname);
 
-	/* enable promiscuous mode */
+	/* bind interface to fd_out socket */
+	if (bind(dev->fd_out, (struct sockaddr*)&sll, sizeof(sll)) < 0)
+		return_error("bind(%s)", dev->ifname);
+
+	shutdown(dev->fd_in, SHUT_WR);
+	shutdown(dev->fd_out, SHUT_RD);
+
+	/* set fd_in in promiscuous mode */
 	memset(&mreq, 0, sizeof(mreq));
 	mreq.mr_ifindex = dev->ifindex;
 	mreq.mr_type = PACKET_MR_PROMISC;
-	if (setsockopt(fd, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0)
+	if (setsockopt(dev->fd_in, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0)
 		return_error("setsockopt(PACKET_MR_PROMISC)");
 
 	return 0;
 }
 
-void iw_close(struct dev *dev) {
+void iw_close(struct iw_dev *dev) {
 	struct ifreq ifr;
 
-	if (dev->fd == -1)
+	if (dev->fd_in == -1)
 		return;
 
-	/* set interface down (ifr_flags = 0) */
-	memset(&ifr, 0, sizeof(ifr));
-	strncpy(ifr.ifr_name, dev->ifname, sizeof(ifr.ifr_name)-1);
-	ioctl(dev->fd, SIOCSIFFLAGS, &ifr);
-	/* restore old mode */
-	ioctl(dev->fd, SIOCSIWMODE, &dev->old_mode);
-	/* restore old flags */
-	ioctl(dev->fd, SIOCSIFFLAGS, &dev->old_flags);
-	close(dev->fd);
+	if (dev->fd_out == -1) {
+		close(dev->fd_in);
+		return;
+	}
+
+	if (dev->old_flags.ifr_name[0] != '\0') {
+		/* set interface down (ifr_flags = 0) */
+		memset(&ifr, 0, sizeof(ifr));
+		strncpy(ifr.ifr_name, dev->ifname, sizeof(ifr.ifr_name)-1);
+		ioctl(dev->fd_in, SIOCSIFFLAGS, &ifr);
+		/* restore old mode */
+		if (dev->old_mode.ifr_name[0] != '\0')
+			ioctl(dev->fd_in, SIOCSIWMODE, &dev->old_mode);
+		/* restore old flags */
+		ioctl(dev->fd_in, SIOCSIFFLAGS, &dev->old_flags);
+	}
+
+	close(dev->fd_in);
+	close(dev->fd_out);
 }
 
-ssize_t iw_write(int fd, void *buf, size_t count) {
+ssize_t iw_write(struct iw_dev *dev, void *buf, size_t count) {
 	unsigned char *pbuf, *pkt;
 	struct radiotap_hdr *rt_hdr;
 	struct write_radiotap_data *w_rt_data;
@@ -137,7 +168,7 @@ ssize_t iw_write(int fd, void *buf, size_t count) {
 	/* packet */
 	memcpy(pkt, buf, count);
 
-	r = send(fd, pbuf, rt_hdr->len + count, 0);
+	r = send(dev->fd_out, pbuf, rt_hdr->len + count, 0);
 	if (r < 0) {
 		free(pbuf);
 		return_error("send");
@@ -149,12 +180,12 @@ ssize_t iw_write(int fd, void *buf, size_t count) {
 	return r > 0 ? r : ERRAGAIN;
 }
 
-ssize_t iw_read(int fd, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz) {
+ssize_t iw_read(struct iw_dev *dev, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz) {
 	struct radiotap_hdr *rt_hdr;
 	int r;
 
 	/* read packet */
-	r = recv(fd, buf, count, 0);
+	r = recv(dev->fd_in, buf, count, 0);
 	if (r < 0)
 		return_error("recv");
 
@@ -168,9 +199,8 @@ ssize_t iw_read(int fd, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz) 
 	return r;
 }
 
-int iw_can_change_channel(struct dev *dev) {
+int iw_can_change_channel(struct iw_dev *dev) {
 	struct iwreq iwr;
-	ssize_t ret;
 
 	/* set channel */
 	memset(&iwr, 0, sizeof(iwr));
@@ -178,30 +208,30 @@ int iw_can_change_channel(struct dev *dev) {
 	iwr.u.freq.flags = IW_FREQ_FIXED;
 	iwr.u.freq.m = 1;
 
-	if (ioctl(dev->fd, SIOCSIWFREQ, &iwr) < 0)
+	if (ioctl(dev->fd_in, SIOCSIWFREQ, &iwr) < 0)
 		return 0;
-	if (ioctl(dev->fd, SIOCGIWFREQ, &iwr) < 0)
+	if (ioctl(dev->fd_in, SIOCGIWFREQ, &iwr) < 0)
 		return 0;
 
 	/* channel 1 frequency is 2412 */
 	return iwr.u.freq.m == 2412;
 }
 
-int iw_set_channel(struct dev *dev, int chan) {
+int iw_set_channel(struct iw_dev *dev, int chan) {
 	struct iwreq iwr;
 	ssize_t ret;
 
 	/* discard packets that are in kernel packet queue */
 	ret = 0;
 	while (ret != -1)
-		ret = recv(dev->fd, NULL, 0, MSG_DONTWAIT);
+		ret = recv(dev->fd_in, NULL, 0, MSG_DONTWAIT);
 
 	/* set channel */
 	memset(&iwr, 0, sizeof(iwr));
 	strncpy(iwr.ifr_name, dev->ifname, sizeof(iwr.ifr_name)-1);
 	iwr.u.freq.flags = IW_FREQ_FIXED;
 	iwr.u.freq.m = chan;
-	if (ioctl(dev->fd, SIOCSIWFREQ, &iwr) < 0)
+	if (ioctl(dev->fd_in, SIOCSIWFREQ, &iwr) < 0)
 		return_error("ioctl(SIOCSIWFREQ)");
 	dev->chan = chan;
 
