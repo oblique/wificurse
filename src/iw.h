@@ -58,7 +58,6 @@ int iw_open(struct iw_dev *dev);
 void iw_close(struct iw_dev *dev);
 ssize_t iw_write(struct iw_dev *dev, void *buf, size_t count);
 ssize_t iw_read(struct iw_dev *dev, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz);
-int iw_can_change_channel(struct iw_dev *dev);
 int iw_set_channel(struct iw_dev *dev, int chan);
 
 #endif

@@ -253,13 +253,6 @@ int main(int argc, char *argv[]) {
 		goto _errout_no_thread;
 	}
 
-	if (!iw_can_change_channel(&dev)) {
-		fprintf(stderr, "%s can not change channels in monitor mode.\n"
-			"Maybe you need to patch your kernel with:\n"
-			"  patches/cfg80211_monitor_mode_channel_fix.patch\n", dev.ifname);
-		goto _errout_no_thread;
-	}
-
 	pfd[1].fd = dev.fd_in;
 	pfd[1].revents = 0;
 	pfd[1].events = POLLIN;

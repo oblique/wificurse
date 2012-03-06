@@ -199,24 +199,6 @@ ssize_t iw_read(struct iw_dev *dev, void *buf, size_t count, uint8_t **pkt, size
 	return r;
 }
 
-int iw_can_change_channel(struct iw_dev *dev) {
-	struct iwreq iwr;
-
-	/* set channel */
-	memset(&iwr, 0, sizeof(iwr));
-	strncpy(iwr.ifr_name, dev->ifname, sizeof(iwr.ifr_name)-1);
-	iwr.u.freq.flags = IW_FREQ_FIXED;
-	iwr.u.freq.m = 1;
-
-	if (ioctl(dev->fd_in, SIOCSIWFREQ, &iwr) < 0)
-		return 0;
-	if (ioctl(dev->fd_in, SIOCGIWFREQ, &iwr) < 0)
-		return 0;
-
-	/* channel 1 frequency is 2412 */
-	return iwr.u.freq.m == 2412;
-}
-
 int iw_set_channel(struct iw_dev *dev, int chan) {
 	struct iwreq iwr;
 	ssize_t ret;
