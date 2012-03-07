@@ -1,5 +1,5 @@
 /*
-    wificurse - WiFi DoS tool
+    wificurse - WiFi Jamming tool
     Copyright (C) 2012  oblique
 
     This program is free software: you can redistribute it and/or modify
@@ -25,7 +25,7 @@
 #include "ap_list.h"
 
 
-#define VERSION	"0.3"
+#define VERSION	"0.3.2"
 
 struct frame_control {
 	uint8_t protocol_version:2;

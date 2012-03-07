@@ -1,5 +1,5 @@
 /*
-    wificurse - WiFi DoS tool
+    wificurse - WiFi Jamming tool
     Copyright (C) 2012  oblique
 
     This program is free software: you can redistribute it and/or modify
@@ -38,7 +38,7 @@ do {									\
 } while(0)
 
 #define err_msg(fmt, ...) \
-	_err_msg(__FILE__, __LINE__, errno, fmt, ##__VA_ARGS__);
+	_err_msg(__FILE__, __LINE__, errno, fmt, ##__VA_ARGS__)
 
 
 #endif

@@ -1,5 +1,5 @@
 /*
-    wificurse - WiFi DoS tool
+    wificurse - WiFi Jamming tool
     Copyright (C) 2012  oblique
 
     This program is free software: you can redistribute it and/or modify
