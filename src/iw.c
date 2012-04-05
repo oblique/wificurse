@@ -172,22 +172,30 @@ ssize_t iw_write(struct iw_dev *dev, void *buf, size_t count) {
 	if (r < 0) {
 		free(pbuf);
 		return_error("send");
+	} else if (r > 0) {
+		r -= rt_hdr->len;
+		if (r <= 0)
+			r = 0;
 	}
 
-	r -= rt_hdr->len;
 	free(pbuf);
 
-	return r > 0 ? r : ERRAGAIN;
+	return r;
 }
 
 ssize_t iw_read(struct iw_dev *dev, void *buf, size_t count, uint8_t **pkt, size_t *pkt_sz) {
 	struct radiotap_hdr *rt_hdr;
 	int r;
 
+	*pkt = NULL;
+	*pkt_sz = 0;
+
 	/* read packet */
 	r = recv(dev->fd_in, buf, count, 0);
 	if (r < 0)
 		return_error("recv");
+	else if (r == 0)
+		return 0;
 
 	rt_hdr = buf;
 	if (sizeof(*rt_hdr) >= r || rt_hdr->len >= r)
@@ -201,12 +209,6 @@ ssize_t iw_read(struct iw_dev *dev, void *buf, size_t count, uint8_t **pkt, size
 
 int iw_set_channel(struct iw_dev *dev, int chan) {
 	struct iwreq iwr;
-	ssize_t ret;
-
-	/* discard packets that are in kernel packet queue */
-	ret = 0;
-	while (ret != -1)
-		ret = recv(dev->fd_in, NULL, 0, MSG_DONTWAIT);
 
 	/* set channel */
 	memset(&iwr, 0, sizeof(iwr));

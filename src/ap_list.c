@@ -79,10 +79,10 @@ int add_or_update_ap(struct ap_list *apl, struct ap_info *api) {
 
 		memset(ap, 0, sizeof(*ap));
 		memcpy(&ap->info, api, sizeof(ap->info));
+		ap->last_beacon_tm = time(NULL);
 		link_ap(apl, ap);
-	}
-
-	ap->last_beacon_tm = time(NULL);
+	} else
+		ap->last_beacon_tm = time(NULL);
 
 	return 0;
 }

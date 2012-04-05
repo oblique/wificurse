@@ -24,7 +24,6 @@
 
 #define GOTERR		-1
 #define ERRNODATA	-2
-#define ERRAGAIN	-3
 
 void set_error(char *file, int line, int errnum, char *fmt, ...);
 void print_error();

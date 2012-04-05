@@ -22,7 +22,7 @@
 #include <stdint.h>
 
 #define CHANNEL_MAX 255
-typedef volatile uint32_t channelset_t[8];
+typedef uint32_t channelset_t[8];
 
 static inline void channel_zero(channelset_t *cs) {
 	uint32_t *c = (uint32_t*)cs;

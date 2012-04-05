@@ -72,7 +72,7 @@ struct beacon_frame_body {
 	uint64_t timestamp;
 	uint16_t interval;
 	uint16_t capabilities;
-	struct info_element infos[];
+	uint8_t  infos[];
 } __attribute__((__packed__));
 
 
