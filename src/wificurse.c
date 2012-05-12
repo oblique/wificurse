@@ -65,6 +65,7 @@ int send_deauth(struct iw_dev *dev, struct access_point *ap) {
 
 	/* send deauth */
 	deauth->sc.sequence = ap->sequence++;
+	ap->sequence %= 4096;
 	do {
 		r = iw_write(dev, deauth, sizeof(*deauth) + sizeof(*reason));
 	} while (r == 0);
@@ -97,7 +98,8 @@ int read_ap_info(struct iw_dev *dev, struct ap_info *api) {
 	beacon = (struct mgmt_frame*)pkt;
 
 	/* if it's a beacon packet */
-	if (beacon->fc.subtype == FRAME_CONTROL_SUBTYPE_BEACON) {
+	if (beacon->fc.type == FRAME_CONTROL_TYPE_MGMT_FRAME
+	    && beacon->fc.subtype == FRAME_CONTROL_SUBTYPE_BEACON) {
 		memcpy(api->bssid, beacon->bssid, IFHWADDRLEN);
 		beacon_fb = (struct beacon_frame_body*)beacon->frame_body;
 		beacon_ie = (struct info_element*)beacon_fb->infos;

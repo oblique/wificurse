@@ -41,6 +41,7 @@ struct frame_control {
 	uint8_t order:1;
 } __attribute__((__packed__));
 
+#define FRAME_CONTROL_TYPE_MGMT_FRAME	0
 #define FRAME_CONTROL_SUBTYPE_DEAUTH	12
 #define FRAME_CONTROL_SUBTYPE_BEACON	8
 
