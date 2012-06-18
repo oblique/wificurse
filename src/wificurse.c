@@ -131,7 +131,7 @@ int read_ap_info(struct iw_dev *dev, struct ap_info *api) {
 			beacon_ie = (struct info_element*)&beacon_ie->info[beacon_ie->len];
 		}
 
-		/* if we didn't found the channel number
+		/* if we didn't find the channel number
 		 * then return ERRNODATA
 		 */
 		if (!(n & 2))

@@ -20,7 +20,7 @@ endif
 all: wificurse
 
 wificurse: $(OBJS)
-	$(CC) $(LDFLAGS) $(LIBS) $(OBJS) -o $@
+	$(CC) $(LIBS) $(LDFLAGS) $(OBJS) -o $@
 
 %.o: %.c $(HDRS)
 	$(CC) $(CFLAGS) -c $< -o $@
