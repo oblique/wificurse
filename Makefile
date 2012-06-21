@@ -1,4 +1,4 @@
-PREFIX ?= /usr/
+PREFIX ?= /usr
 CC ?= $(CROSS_COMPILE)gcc
 CFLAGS += -pthread
 
