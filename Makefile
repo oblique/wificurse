@@ -1,12 +1,12 @@
-PREFIX ?= /usr/local
-CC = $(CROSS_COMPILE)gcc
-CFLAGS ?= -O2
+PREFIX ?= /usr
+CC ?= $(CROSS_COMPILE)gcc
+CFLAGS += -pthread
 
 SRCS = $(wildcard src/*.c)
 HDRS = $(wildcard src/*.h)
 
 OBJS = $(SRCS:%.c=%.o)
-LIBS = -lpthread
+LIBS = 
 
 .PHONY: clean all install
 
@@ -20,7 +20,7 @@ endif
 all: wificurse
 
 wificurse: $(OBJS)
-	$(CC) $(LIBS) $(LDFLAGS) $(OBJS) -o $@
+	$(CC) ${CFLAGS} $(LDFLAGS) $(LIBS) $(OBJS) -o $@
 
 %.o: %.c $(HDRS)
 	$(CC) $(CFLAGS) -c $< -o $@
