@@ -40,7 +40,9 @@ struct deauth_thread_args {
 	struct ap_list *apl;
 	struct iw_dev *dev;
 	pthread_mutex_t *chan_mutex;
+	pthread_cond_t *chan_cond;
 	pthread_mutex_t *list_mutex;
+	volatile int chan_changed;
 	volatile int stop;
 };
 
@@ -150,6 +152,10 @@ void *deauth_thread_func(void *arg) {
 
 	while (!ta->stop) {
 		pthread_mutex_lock(ta->chan_mutex);
+		/* make sure that it changed channel */
+		while (!ta->chan_changed && !ta->stop)
+			pthread_cond_wait(ta->chan_cond, ta->chan_mutex);
+
 		b = 0;
 		for (i=0; i<60 && !ta->stop; i++) {
 			for (j=0; j<128 && !ta->stop; j++) {
@@ -185,9 +191,9 @@ void *deauth_thread_func(void *arg) {
 			if (b && !ta->stop)
 				usleep(180000);
 		}
+
+		ta->chan_changed = 0;
 		pthread_mutex_unlock(ta->chan_mutex);
-		/* small delay to avoid fast relock of chan_mutex */
-		usleep(100);
 	}
 
 	return NULL;
@@ -267,6 +273,7 @@ int main(int argc, char *argv[]) {
 	suseconds_t msec;
 	pthread_t deauth_thread;
 	pthread_mutex_t chan_mutex, list_mutex;
+	pthread_cond_t chan_cond;
 	channelset_t chans;
 	int ret, sigfd, c, n, chan;
 	char *ifname, *chans_str;
@@ -376,8 +383,12 @@ int main(int argc, char *argv[]) {
 	ta.dev = &dev;
 	pthread_mutex_init(&chan_mutex, NULL);
 	ta.chan_mutex = &chan_mutex;
+	pthread_cond_init(&chan_cond, NULL);
+	ta.chan_cond = &chan_cond;
 	pthread_mutex_init(&list_mutex, NULL);
 	ta.list_mutex = &list_mutex;
+	ta.chan_changed = 1;
+
 	if (pthread_create(&deauth_thread, NULL, deauth_thread_func, &ta) < 0) {
 		err_msg("pthread_create");
 		goto _errout_no_thread;
@@ -428,28 +439,26 @@ int main(int argc, char *argv[]) {
 		}
 
 		/* change channel at least every 1 second */
-		if (time(NULL) - tm >= 1) {
+		if (time(NULL) - tm >= 1 && !ta.chan_changed) {
+			pthread_mutex_lock(&chan_mutex);
 			n = 0;
 			do {
-				if (pthread_mutex_trylock(&chan_mutex) != 0) {
-					n = -1;
-					break;
-				}
 				chan = (chan % CHANNEL_MAX) + 1;
 				if (channel_isset(&chans, chan))
 					ret = iw_set_channel(&dev, chan);
 				else
 					ret = -1;
-				pthread_mutex_unlock(&chan_mutex);
 				/* if fails try next channel */
 			} while(++n < CHANNEL_MAX && ret < 0);
-			if (n != -1) {
-				if (ret < 0) {
-					print_error();
-					goto _errout;
-				}
-				tm = time(NULL);
+			/* if all channels failed */
+			if (ret < 0) {
+				print_error();
+				goto _errout;
 			}
+			tm = time(NULL);
+			ta.chan_changed = 1;
+			pthread_cond_signal(&chan_cond);
+			pthread_mutex_unlock(&chan_mutex);
 		}
 	}
 
@@ -459,12 +468,18 @@ int main(int argc, char *argv[]) {
 
 	printf("\nExiting..\n");
 	ta.stop = 1;
+	pthread_mutex_unlock(&list_mutex);
+	pthread_cond_broadcast(&chan_cond);
+	pthread_mutex_unlock(&chan_mutex);
 	pthread_join(deauth_thread, NULL);
 	iw_close(&dev);
 	free_ap_list(&apl);
 	return EXIT_SUCCESS;
 _errout:
 	ta.stop = 1;
+	pthread_mutex_unlock(&list_mutex);
+	pthread_cond_broadcast(&chan_cond);
+	pthread_mutex_unlock(&chan_mutex);
 	pthread_join(deauth_thread, NULL);
 _errout_no_thread:
 	iw_close(&dev);
