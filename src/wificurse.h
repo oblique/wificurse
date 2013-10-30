@@ -25,7 +25,7 @@
 #include "ap_list.h"
 
 
-#define VERSION	"0.3.7"
+#define VERSION	"0.3.8"
 
 struct frame_control {
 	uint8_t protocol_version:2;
