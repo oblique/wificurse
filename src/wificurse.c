@@ -26,6 +26,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/time.h>
+#include <sys/ioctl.h>
 #include "iw.h"
 #include "error.h"
 #include "console.h"
@@ -209,7 +210,37 @@ static void print_usage(FILE *f) {
 	fprintf(f, "  usage: wificurse [options] <interface>\n\n");
 	fprintf(f, "  Options:\n");
 	fprintf(f, "    -c channels      Channel list (e.g 1,4-6,11) (default: 1-14)\n");
+	fprintf(f, "    -l               Display all network interfaces and exit\n");
 	fprintf(f, "\n");
+}
+
+static int print_interfaces() {
+	struct ifconf ifc;
+	struct ifreq *ifr;
+	char buf[8192];
+	int i, sock;
+
+	sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (sock < 0) {
+		perror("socket");
+		return 1;
+	}
+
+	ifc.ifc_len = sizeof(buf);
+	ifc.ifc_buf = buf;
+	if (ioctl(sock, SIOCGIFCONF, &ifc) < 0) {
+		perror("ioctl(SIOCGIFCONF)");
+		close(sock);
+		return 1;
+	}
+
+	printf("Network interfaces:\n");
+	ifr = ifc.ifc_req;
+	for (i = 0; i < ifc.ifc_len / sizeof(*ifr); i++)
+		printf("  %s\n", ifr[i].ifr_name);
+
+	close(sock);
+	return 0;
 }
 
 static int parse_chans_str(char *chans_str, channelset_t *chans) {
@@ -294,11 +325,13 @@ int main(int argc, char *argv[]) {
 	ifname = argv[argc-1];
 	chans_str = NULL;
 
-	while((c = getopt(argc, argv, "c:h")) != -1) {
+	while((c = getopt(argc, argv, "c:lh")) != -1) {
 		switch (c) {
 		case 'c':
 			chans_str = optarg;
 			break;
+		case 'l':
+			return print_interfaces();
 		case 'h':
 			print_usage(stdout);
 			return EXIT_SUCCESS;
