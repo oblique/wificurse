@@ -26,7 +26,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/time.h>
-#include <sys/ioctl.h>
+#include <linux/rtnetlink.h>
 #include "iw.h"
 #include "error.h"
 #include "console.h"
@@ -215,29 +215,98 @@ static void print_usage(FILE *f) {
 }
 
 static int print_interfaces() {
-	struct ifconf ifc;
-	struct ifreq *ifr;
+	int sock, len;
+	struct nlmsghdr *nlm;
+	struct iovec iov;
+	struct msghdr rtnl_msg;
+	struct sockaddr_nl s_nl;
+	struct {
+		struct nlmsghdr nh;
+		struct rtgenmsg rtgm;
+	} req;
 	char buf[8192];
-	int i, sock;
 
-	sock = socket(AF_INET, SOCK_STREAM, 0);
+	printf("Network interfaces:\n");
+
+	/* open netlink socket */
+	sock = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
 	if (sock < 0) {
-		perror("socket");
+		perror("sock");
 		return 1;
 	}
 
-	ifc.ifc_len = sizeof(buf);
-	ifc.ifc_buf = buf;
-	if (ioctl(sock, SIOCGIFCONF, &ifc) < 0) {
-		perror("ioctl(SIOCGIFCONF)");
+	/* initialize request */
+	memset(&req, 0, sizeof(req));
+	req.nh.nlmsg_len = NLMSG_LENGTH(sizeof(req.rtgm));
+	req.nh.nlmsg_type = RTM_GETLINK;
+	req.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+	req.nh.nlmsg_seq = 1;
+	req.nh.nlmsg_pid = getpid();
+	req.rtgm.rtgen_family = AF_PACKET;
+
+	memset(&s_nl, 0, sizeof(s_nl));
+	s_nl.nl_family = AF_NETLINK;
+
+	iov.iov_base = &req;
+	iov.iov_len = req.nh.nlmsg_len;
+
+	memset(&rtnl_msg, 0, sizeof(rtnl_msg));
+	rtnl_msg.msg_iov = &iov;
+	rtnl_msg.msg_iovlen = 1;
+	rtnl_msg.msg_name = &s_nl;
+	rtnl_msg.msg_namelen = sizeof(s_nl);
+
+	/* send request */
+	len = sendmsg(sock, &rtnl_msg, 0);
+	if (len < 0) {
+		perror("sendmsg");
 		close(sock);
 		return 1;
 	}
 
-	printf("Network interfaces:\n");
-	ifr = ifc.ifc_req;
-	for (i = 0; i < ifc.ifc_len / sizeof(*ifr); i++)
-		printf("  %s\n", ifr[i].ifr_name);
+	int end = 0;
+	while (!end) {
+		iov.iov_base = buf;
+		iov.iov_len = sizeof(buf);
+
+		memset(&rtnl_msg, 0, sizeof(rtnl_msg));
+		rtnl_msg.msg_iov = &iov;
+		rtnl_msg.msg_iovlen = 1;
+		rtnl_msg.msg_name = &s_nl;
+		rtnl_msg.msg_namelen = sizeof(s_nl);
+
+		/* receive response */
+		len = recvmsg(sock, &rtnl_msg, 0);
+		if (len < 0) {
+			perror("recvmsg");
+			close(sock);
+			return 1;
+		}
+
+		/* read response */
+		nlm = (struct nlmsghdr*)buf;
+		while (NLMSG_OK(nlm, len)) {
+			if (nlm->nlmsg_type == NLMSG_DONE) {
+				end = 1;
+				break;
+			} else if (nlm->nlmsg_type == RTM_NEWLINK) {
+				struct ifinfomsg *ifinfo;
+				struct rtattr *rta;
+				int iflen;
+
+				ifinfo = NLMSG_DATA(nlm);
+				rta = IFLA_RTA(ifinfo);
+				iflen = IFLA_PAYLOAD(nlm);
+
+				while (RTA_OK(rta, iflen)) {
+					if (rta->rta_type == IFLA_IFNAME)
+						printf("  %s\n", (char*)RTA_DATA(rta));
+					rta = RTA_NEXT(rta, iflen);
+				}
+			}
+			nlm = NLMSG_NEXT(nlm, len);
+		}
+	}
 
 	close(sock);
 	return 0;
